@@ -1,0 +1,181 @@
+// In terminal.cpp
+bool terminalTask::taskEntry()
+{
+    /* remoteTask() creates shared object in its init(), so we can get it now */
+    CommandProcessor &cp = mCmdProc;
+
+    // Own handlers
+    cp.addHandler(testLedHandler, "led",	"Flash LEDs, count in binary up to 15");
+	.
+	.
+	.
+	.
+}
+
+// ------------------------------------------------------------------------
+
+// In handlers.hpp
+
+// Own Handlers
+CMD_HANDLER_FUNC(testLedHandler);
+
+// ------------------------------------------------------------------------
+
+// In handlers.cpp
+
+typedef enum{
+    _0,
+    _1,
+    _2,
+    _3,
+    _4,
+    _5,
+    _6,
+    _7,
+    _8,
+    _9,
+    _A,
+    _B,
+    _C,
+    _D,
+    _E,
+    _F,
+    _end
+}LEDstate;
+
+// Own Handlers
+CMD_HANDLER_FUNC(testLedHandler)
+{
+	LEDstate nxtState = _0;
+	LEDstate currState = _0;
+
+	while(nxtState != _end)
+	{
+		currState = nxtState;
+		switch(currState)
+		{
+		case _0:
+			LE.off(1);
+			LE.off(2);
+			LE.off(3);
+			LE.off(4);
+			nxtState = _1;
+			break;
+		case _1:
+			LE.off(1);
+			LE.off(2);
+			LE.off(3);
+			LE.on(4);
+			nxtState = _2;
+			break;
+		case _2:
+			LE.off(1);
+			LE.off(2);
+			LE.on(3);
+			LE.off(4);
+			nxtState = _3;
+			break;
+		case _3:
+			LE.off(1);
+			LE.off(2);
+			LE.on(3);
+			LE.on(4);
+			nxtState = _4;
+			break;
+		case _4:
+			LE.off(1);
+			LE.on(2);
+			LE.off(3);
+			LE.off(4);
+			nxtState = _5;
+			break;
+		case _5:
+			LE.off(1);
+			LE.on(2);
+			LE.off(3);
+			LE.on(4);
+			nxtState = _6;
+			break;
+		case _6:
+			LE.off(1);
+			LE.on(2);
+			LE.on(3);
+			LE.off(4);
+			nxtState = _7;
+			break;
+		case _7:
+			LE.off(1);
+			LE.on(2);
+			LE.on(3);
+			LE.on(4);
+			nxtState = _8;
+			break;
+		case _8:
+			LE.on(1);
+			LE.off(2);
+			LE.off(3);
+			LE.off(4);
+			nxtState = _9;
+			break;
+		case _9:
+			LE.on(1);
+			LE.off(2);
+			LE.off(3);
+			LE.on(4);
+			nxtState = _A;
+			break;
+		case _A:
+			LE.on(1);
+			LE.off(2);
+			LE.on(3);
+			LE.off(4);
+			nxtState = _B;
+			break;
+		case _B:
+			LE.on(1);
+			LE.off(2);
+			LE.on(3);
+			LE.on(4);
+			nxtState = _C;
+			break;
+		case _C:
+			LE.on(1);
+			LE.on(2);
+			LE.off(3);
+			LE.off(4);
+			nxtState = _D;
+			break;
+		case _D:
+			LE.on(1);
+			LE.on(2);
+			LE.off(3);
+			LE.on(4);
+			nxtState = _E;
+			break;
+		case _E:
+			LE.on(1);
+			LE.on(2);
+			LE.on(3);
+			LE.off(4);
+			nxtState = _F;
+			break;
+		case _F:
+			LE.on(1);
+			LE.on(2);
+			LE.on(3);
+			LE.on(4);
+			nxtState = _end;
+			break;
+		case _end:
+			break;
+		default:
+			nxtState = _end;
+		}
+		vTaskDelay(500);
+	}
+	LE.off(1);
+	LE.off(2);
+	LE.off(3);
+	LE.off(4);
+	return true;
+}
