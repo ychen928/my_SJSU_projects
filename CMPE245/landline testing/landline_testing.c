@@ -1,13 +1,13 @@
 /*
 ===============================================================================
- Name        : Lab1.c
- Author      : $YuYu Chen
- Version     :
+ Name        : landline_testing.c
+ Author      : YuYu Chen
+ Version     : 3
  Copyright   : $(copyright)
- Description : Lab 1 for CMPE245, Demoed, RX/TX, LISA, De/Scrambler, RF
- TODO: implement timer1 peripheral for delay function, timer0 used for interrupt driven timer
+ Description : Intercommunication land-line testing for LPC1769 RX/TX with LISA algorithm, tested and demoed
 ===============================================================================
 */
+
 #ifdef __USE_CMSIS
 #include "LPC17xx.h"
 #endif
@@ -16,40 +16,46 @@
 
 #include <stdio.h>
 #include <stdbool.h>
-#include <stdint.h>
-#include <string.h>
+
+// TODO: insert other include files here
+
+// TODO: insert other definitions and declarations here
 
 
-#define DEBUG 		0
-#define POLL_RX 	0
-#define POLL_TX 	0
+#define DEBUG 0
+#define POLL_RX 0
 
 #define PAYLOAD_SIZE	88
 #define SYNC_SIZE 		256
 #define RX_BUFFER_SIZE  1024
 #define PAYLOAD_BUFFER_SIZE 256
 
-
-// firmware
 void start_timer(void);
 bool enable_timer(uint32_t ms_delay);
 void delayMs(uint32_t ms_delay);
 void enable_interrupt(void);
-void disable_interrupt(void);
-
-// LISA
 void decode_payload(void);
+void disable_interrupt();
 void set_confidence(void);
 bool match_and_get_payload(void); // LISA algorithm
 int sync(int p);
 
-// scrambler/descrambler
-void set_scramble_scramble_nth_order(void);
-void scramble(int *payload);
-void descramble(int *payload);
-
-
-int syncdata[SYNC_SIZE] = 	{
+int syncdata[SYNC_SIZE] = 	{	0,1,0,1,0,0,0,0,	//5 prefix
+								0,1,0,1,0,0,0,1,	//0x51
+								0,1,0,1,0,0,1,0,	//0x52
+								0,1,0,1,0,0,1,1,	//0x53
+								0,1,0,1,0,1,0,0,	//0x54
+								0,1,0,1,0,1,0,1,	//0x55
+								0,1,0,1,0,1,1,0,	//0x56
+								0,1,0,1,0,1,1,1,	//0x57
+								0,1,0,1,1,0,0,0,	//0x58
+								0,1,0,1,1,0,0,1,	//0x59
+								0,1,0,1,1,0,1,0,	//0x5A
+								0,1,0,1,1,0,1,1,	//0x5B
+								0,1,0,1,1,1,0,0,	//0x5C
+								0,1,0,1,1,1,0,1,	//0x5D
+								0,1,0,1,1,1,1,0,	//0x5E
+								0,1,0,1,1,1,1,1,	//0x5F
 								1,0,1,0,0,0,0,0,	//A prefix
 								1,0,1,0,0,0,0,1,	//0xA1
 								1,0,1,0,0,0,1,0,	//0xA2
@@ -65,23 +71,7 @@ int syncdata[SYNC_SIZE] = 	{
 								1,0,1,0,1,1,0,0,	//0xAC
 								1,0,1,0,1,1,0,1,	//0xAD
 								1,0,1,0,1,1,1,0,	//0xAE
-								1,0,1,0,1,1,1,1,	//0xAF
-								0,1,0,1,0,0,0,0,	//5 prefix
-								0,1,0,1,0,0,0,1,	//0x51
-								0,1,0,1,0,0,1,0,	//0x52
-								0,1,0,1,0,0,1,1,	//0x53
-								0,1,0,1,0,1,0,0,	//0x54
-								0,1,0,1,0,1,0,1,	//0x55
-								0,1,0,1,0,1,1,0,	//0x56
-								0,1,0,1,0,1,1,1,	//0x57
-								0,1,0,1,1,0,0,0,	//0x58
-								0,1,0,1,1,0,0,1,	//0x59
-								0,1,0,1,1,0,1,0,	//0x5A
-								0,1,0,1,1,0,1,1,	//0x5B
-								0,1,0,1,1,1,0,0,	//0x5C
-								0,1,0,1,1,1,0,1,	//0x5D
-								0,1,0,1,1,1,1,0,	//0x5E
-								0,1,0,1,1,1,1,1		//0x5F
+								1,0,1,0,1,1,1,1		//0xAF
 	};
 
 int payload[PAYLOAD_SIZE] =
@@ -100,9 +90,9 @@ int payload[PAYLOAD_SIZE] =
 };
 
 int rx_buffer[RX_BUFFER_SIZE] = {0};
+//uint32_t fifo_counter = 0;
 int payload_buffer[PAYLOAD_BUFFER_SIZE] = {0};
 char decoded_payload[PAYLOAD_BUFFER_SIZE] = {'\0'};
-int message_to_send[SYNC_SIZE + PAYLOAD_SIZE] = {0};
 
 static uint8_t confidence = 0;
 static int jump =0;
@@ -112,16 +102,6 @@ volatile bool intr_triggered = false;
 
 volatile bool rx_busy = false;
 static int rx_buffer_index = 0;
-
-volatile bool tx_busy = false;
-static int tx_buffer_index = 0;
-
-// scrambler
-static uint8_t delay_nth_first[PAYLOAD_SIZE] = {0};
-static uint8_t delay_nth_second[PAYLOAD_SIZE] = {0};
-static int scramble_out[PAYLOAD_SIZE] = {0};
-static int descramble_out[PAYLOAD_SIZE] = {0};
-static int order = 0;
 
 bool init_pins(void)
 {
@@ -182,7 +162,6 @@ bool init_timer(void)
 	return true;
 }
 
-// polling, need to change to timer1 
 bool tx_data(int *sync, int *data)
 {
 	int i;
@@ -190,8 +169,6 @@ bool tx_data(int *sync, int *data)
 
 	bool success = false;
 	int success_count = 0;
-
-	scramble(data);
 
 	// Message to Send out of TX
 	for(i=0; i < SYNC_SIZE+ PAYLOAD_SIZE; i++)
@@ -201,7 +178,7 @@ bool tx_data(int *sync, int *data)
 	}
 	for(i = SYNC_SIZE; i < SYNC_SIZE + PAYLOAD_SIZE; i++)
 	{
-		message_to_send[i] = scramble_out[i-SYNC_SIZE];
+		message_to_send[i] = data[i-SYNC_SIZE];
 	}
 
 	if(LPC_GPIO2->FIOPIN & (1 << 7))
@@ -221,7 +198,7 @@ bool tx_data(int *sync, int *data)
 				success_count++;
 			}
 			delayMs(10);
-		}
+	}
 
 		if (success_count == SYNC_SIZE+PAYLOAD_SIZE)
 		{
@@ -235,44 +212,6 @@ bool tx_data(int *sync, int *data)
 	}
 	return success;
 }
-
-// interrupt driven based on timer interrupt
-bool tx_data_ir(int *sync, int *data)
-{
-	int i;
-
-	bool success = false;
-	int success_count = 0;
-
-	scramble(data);
-
-	// Message to Send out of TX
-	for(i=0; i < SYNC_SIZE+ PAYLOAD_SIZE; i++)
-	{
-		message_to_send[i] = sync[i];
-
-	}
-	for(i = SYNC_SIZE; i < SYNC_SIZE + PAYLOAD_SIZE; i++)
-	{
-		message_to_send[i] = scramble_out[i-SYNC_SIZE];
-	}
-
-	start_timer();
-	tx_busy = true;
-	printf("busy: %d\r\n", tx_busy);
-	while(tx_busy)
-	{
-		// wait for it to finish, let interrupt do the job
-		LPC_GPIO2->FIOSET = (1 << 6);
-	}
-	LPC_TIM0->TCR =  (0 << 0); // stop timer
-	LPC_GPIO2->FIOCLR = (1 << 6);
-
-	tx_buffer_index = 0;
-	success = true;
-	return success;
-}
-
 
 // polling rx with delay
 bool rx_data(int *buffer)
@@ -323,6 +262,7 @@ bool rx_data_ir(int *buffer)
 {
 	bool success = false;
 	enable_interrupt();
+	uint32_t i=1;
 
 	// edge detected
 	if(intr_triggered)
@@ -356,7 +296,7 @@ bool rx_data_ir(int *buffer)
 void set_confidence(void)
 {
 	printf("Please enter a confidence level between 1 and 32\n");
-	printf("A 1 would lead to a 3%% confidence and 32 would lead to a 100%% confidence\n");
+	printf("A 1 would lead to a 3% confidence and 32 would lead to a 100% confidence\n");
 	scanf("%d", &confidence);
 }
 
@@ -443,7 +383,7 @@ bool match_and_get_payload(void)
 		printf("location: %d  position: %d  index: %d\r\n", location, position, index);
 
 		i=0;
-		for(int p = index; p < index + PAYLOAD_SIZE; p++)
+		for(int p = index; p < index + 256; p++)
 		{
 			payload_buffer[i] = rx_buffer[p];
 			i++;
@@ -462,8 +402,6 @@ void decode_payload(void)
 	uint8_t bits = 0;
 	int i;
 
-	descramble(payload_buffer);
-
 	for(i = 0; i < SYNC_SIZE+PAYLOAD_SIZE; i++) //PAYLOAD_SIZE
 	{
 		if(i != 0 && i%8 == 0)
@@ -475,7 +413,7 @@ void decode_payload(void)
 		else
 		{
 			bits = bits <<= 1;
-			bits = bits | descramble_out[i]; // payload_buffer
+			bits = bits | payload_buffer[i]; // payload_buffer
 		}
 	}
 
@@ -491,26 +429,7 @@ void TIMER0_IRQHandler(void)
 	LPC_TIM0->IR = 0xff;
 	}
 //	printf("tick\r\n");
-//	LPC_GPIO0->FIOPIN ^= (1 << 2);
-
-	if(tx_busy)
-	{
-		if(message_to_send[tx_buffer_index] == 1)
-		{
-			LPC_GPIO0->FIOSET = (1 << 2);
-			tx_buffer_index++;
-		}
-		else if(message_to_send[tx_buffer_index] == 0)
-		{
-			LPC_GPIO0->FIOCLR = (1 << 2);
-			tx_buffer_index++;
-		}
-
-		if(tx_buffer_index == SYNC_SIZE +PAYLOAD_SIZE)
-		{
-			tx_busy = false;
-		}
-	}
+	LPC_GPIO0->FIOPIN ^= (1 << 2);
 
 	if(rx_busy)
 	{
@@ -565,137 +484,6 @@ void delayMs(uint32_t ms_delay)
 
 }
 
-void set_scramble_scramble_nth_order(void)
-{
-	printf("Enter what nth order to scramble/descramble payload\r\n");
-	scanf("%d", &order);
-}
-
-void scramble(int *payload)
-{
-	int i=0;
-	uint8_t scramble_buffer = 0;
-	int payload_index = 0;
-	int nth_delay_bit = order/2; // order will be the 2nd delay used
-	uint16_t delay_buffer = 0;
-
-	bool out = 0;
-	int scramble_out_index = 0;
-	int delay_nth_first_index = 0;
-	int delay_nth_second_index = 0;
-
-	memset(delay_nth_first, 0, sizeof(delay_nth_first)); // reset delay arrays
-	memset(delay_nth_second, 0, sizeof(delay_nth_second));
-	puts("scramble");
-	while(payload_index < PAYLOAD_SIZE)
-	{
-		scramble_buffer = 0; // reset buffer to 0
-		for(i=7; i >= 0; i--) // copy payload 8 bits at a time into buffer
-		{
-			scramble_buffer |= payload[payload_index++] << i;
-		}
-		for(i=0; i < 8; i++)
-		{
-			delay_nth_first[delay_nth_first_index] = ((delay_buffer & (1 << nth_delay_bit)) >> nth_delay_bit);
-			delay_nth_second[delay_nth_second_index] = ((delay_buffer & (1 << (order-1))) >> (order-1));
-			out = delay_nth_first[delay_nth_first_index++] ^ delay_nth_second[delay_nth_second_index++]; // delays
-			out ^= ((scramble_buffer >> (7-i)) & 0x1); // xor with input
-			scramble_out[scramble_out_index++] = out;
-			delay_buffer = (delay_buffer << 1) | (out << 0);
-		}
-	}
-	printf("index: %d  scrambler_buffer: 0x%x\r\n",payload_index, scramble_buffer);
-	printf("first: %d second: %d scramble_index: %d\r\n", delay_nth_first_index, delay_nth_second_index, scramble_out_index);
-	printf("delay_buffer: %d\r\n", delay_buffer);
-	printf("pay: ");
-	for(i=0; i < PAYLOAD_SIZE; i++)
-	{
-		printf("%d",payload[i]);
-	}
-	puts("\r");
-	printf("D5t: ");
-	for(i=0; i < PAYLOAD_SIZE; i++)
-	{
-		printf("%d",delay_nth_second[i]);
-	}
-	puts("\r");
-	printf("D3t: ");
-	for(i=0; i < PAYLOAD_SIZE; i++)
-	{
-		printf("%d",delay_nth_first[i]);
-	}
-	puts("\r");
-	printf("out: ");
-	for(i=0; i < PAYLOAD_SIZE; i++)
-	{
-		printf("%d",scramble_out[i]);
-	}
-	puts("\r");
-
-}
-
-void descramble(int *payload)
-{
-	int i=0;
-	uint8_t descramble_buffer = 0;
-	int payload_index = 0;
-	int nth_delay_bit = order/2; // order will be the 2nd delay used
-	uint16_t delay_buffer = 0;
-
-	bool out = 0;
-	int descramble_out_index = 0;
-	int delay_nth_first_index = 0;
-	int delay_nth_second_index = 0;
-
-	memset(delay_nth_first, 0, sizeof(delay_nth_first)); // reset delay arrays
-	memset(delay_nth_second, 0, sizeof(delay_nth_second));
-	puts("descramble");
-	while(payload_index < PAYLOAD_SIZE)
-	{
-		descramble_buffer = 0; //reset 8-bit buffer
-		for(i=7; i >=0; i--)
-		{
-			descramble_buffer |= payload[payload_index++] << i;
-		}
-		for(i=0; i < 8; i++)
-		{
-			delay_nth_first[delay_nth_first_index] = ((delay_buffer & (1 << nth_delay_bit)) >> nth_delay_bit);
-			delay_nth_second[delay_nth_second_index] = ((delay_buffer & (1 << (order-1))) >> (order-1));
-			out = delay_nth_first[delay_nth_first_index++] ^ delay_nth_second[delay_nth_second_index++]; // delays
-			out ^= ((descramble_buffer >> (7-i)) & 0x1); // xor with input
-			descramble_out[descramble_out_index++] = out;
-			delay_buffer = (delay_buffer << 1) | (((descramble_buffer >> (7-i)) & 0x1) << 0);
-		}
-	}
-	printf("index: %d  scrambler_buffer: 0x%x\r\n",payload_index, descramble_buffer);
-	printf("first: %d second: %d scramble_index: %d\r\n", delay_nth_first_index, delay_nth_second_index, descramble_out_index);
-	printf("delay_buffer: %d\r\n", delay_buffer);
-	printf("pay: ");
-	for(i=0; i < PAYLOAD_SIZE; i++)
-	{
-		printf("%d",payload[i]);
-	}
-	puts("\r");
-	printf("D5t: ");
-	for(i=0; i < PAYLOAD_SIZE; i++)
-	{
-		printf("%d",delay_nth_second[i]);
-	}
-	puts("\r");
-	printf("D3t: ");
-	for(i=0; i < PAYLOAD_SIZE; i++)
-	{
-		printf("%d",delay_nth_first[i]);
-	}
-	puts("\r");
-	printf("out: ");
-	for(i=0; i < PAYLOAD_SIZE; i++)
-	{
-		printf("%d",descramble_out[i]);
-	}
-	puts("\r");
-}
-
 int main(void) {
 
     int option =0;
@@ -711,45 +499,36 @@ int main(void) {
     NVIC_EnableIRQ(EINT3_IRQn);
 
     set_confidence();
-    set_scramble_scramble_nth_order();
+
     while(1)
     {
-    	printf("Option1: send data   Option2: receive data\r\n");
-    	scanf( "%d", &option);
-    	switch(option)
-    	{
-    	case 1:
-#if POLL_TX
-    		success = tx_data(syncdata, payload);
-#else
-    		success = tx_data_ir(syncdata, payload);
-#endif
-    	    printf("success: %d\r\n", success);
-    	    break;
-    	case 2:
-#if POLL_RX
-    	    success1 = rx_data(rx_buffer);
-    	    printf("success1: %d\r\n", success1);
-#else
-        	success1 = rx_data_ir(rx_buffer);
-        	printf("success1: %d\r\n", success1);
-#endif
-    	    break;
-    	case 3:
-    		scramble(payload);
-    		descramble(scramble_out);
-    		break;
-    	default:
-    		success = tx_data(syncdata, payload);
-    		printf("success: %d\r\n", success);
-    		break;
-    	}
+//    	printf("Option1: send data   Option2: receive data\r\n");
+//    	scanf( "%d", &option);
+//    	switch(option)
+//    	{
+//    	case 1:
+//    		success = tx_data(syncdata, payload);
+//    	    printf("success: %d\r\n", success);
+//    	    break;
+//    	case 2:
+//#if POLL_RX
+//    	    success1 = rx_data(rx_buffer);
+//    	    printf("success1: %d\r\n", success1);
+//#else
+//        	success1 = rx_data_ir(rx_buffer);
+//        	printf("success1: %d\r\n", success1);
+//#endif
+//    	    break;
+//    	default:
+//    		success = tx_data(syncdata, payload);
+//    		printf("success: %d\r\n", success);
+//    		break;
+//    	}
 //    	delayMs(1000);
-
+    	success1 = rx_data_ir(rx_buffer);
+    	printf("success1: %d\r\n", success1);
 //    	LPC_GPIO0->FIOPIN ^= (1 << 2);
 //    	delayMs(100);
-//    	success1 = rx_data_ir(rx_buffer);
-//    	printf("success1: %d\r\n", success1);
     }
     return 0 ;
 }
